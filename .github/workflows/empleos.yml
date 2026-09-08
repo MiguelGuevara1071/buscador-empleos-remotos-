@@ -37,6 +37,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add empleos_vistos.json reportes/ || true
+          git add -A empleos_vistos.json reportes/ || true
           git commit -m "Actualizar reportes de empleos en Excel [skip ci]" || exit 0
           git push

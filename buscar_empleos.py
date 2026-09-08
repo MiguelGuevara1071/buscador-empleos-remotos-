@@ -525,7 +525,20 @@ def enviar_documento_telegram(ruta_archivo, caption=""):
                 time.sleep(2)
             else:
                 print(f"Error enviando documento Excel a Telegram: {e}")
-                return False
+def limpiar_reportes_antiguos(dias_retencion=30):
+    """Elimina automáticamente archivos Excel con más de 30 días de antigüedad en la carpeta reportes."""
+    if not os.path.exists(CARPETA_REPORTES):
+        return
+    limite_segundos = time.time() - (dias_retencion * 86400)
+    for nombre in os.listdir(CARPETA_REPORTES):
+        if nombre.endswith(".xlsx"):
+            ruta_completa = os.path.join(CARPETA_REPORTES, nombre)
+            try:
+                if os.path.getmtime(ruta_completa) < limite_segundos:
+                    os.remove(ruta_completa)
+                    print(f"Limpieza automática: reporte antiguo eliminado ({nombre})")
+            except Exception as e:
+                print(f"No se pudo eliminar {nombre}: {e}")
 
 def ejecutar_busqueda():
     """Ejecuta la búsqueda horaria completa y genera el reporte en Excel."""
@@ -571,6 +584,9 @@ def ejecutar_busqueda():
     
     generar_excel_empleos(agrupadas, ruta_excel)
     print(f"Excel generado exitosamente: {ruta_excel}")
+    
+    # Autolimpieza: eliminar archivos de más de 30 días de antigüedad
+    limpiar_reportes_antiguos(dias_retencion=30)
     
     # Preparar resumen conciso para Telegram
     total = sum(len(agrupadas[g]) for g in agrupadas)
