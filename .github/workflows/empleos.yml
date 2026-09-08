@@ -1,0 +1,42 @@
+name: Escaneo Horario de Empleos Remotos
+
+on:
+  schedule:
+    # Se ejecuta cada hora al minuto 0
+    - cron: '0 * * * *'
+  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub cuando quieras
+
+permissions:
+  contents: write # Permiso para actualizar reportes de Excel y el historial de IDs vistos
+
+jobs:
+  buscar-y-notificar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar entorno de Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+
+      - name: Ejecutar buscador y enviar Excel a Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python buscar_empleos.py
+
+      - name: Guardar historial y respaldos en Excel
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add empleos_vistos.json reportes/ || true
+          git commit -m "Actualizar reportes de empleos en Excel [skip ci]" || exit 0
+          git push

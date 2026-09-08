@@ -1,0 +1,11 @@
+# Archivos de entorno y credenciales (NUNCA subir a GitHub)
+.env
+
+# Archivos de caché y temporales de Python
+__pycache__/
+*.py[cod]
+*.log
+
+# Scripts de prueba
+test_sources.py
+obtener_id.py
