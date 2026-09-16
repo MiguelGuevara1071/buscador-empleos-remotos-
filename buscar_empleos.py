@@ -11,6 +11,7 @@ import html
 import time
 import urllib.request
 import urllib.parse
+import xml.etree.ElementTree as ET
 from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -52,16 +53,32 @@ GRUPOS_CONFIG = {
 }
 
 def clasificar_oferta(titulo, tags=None):
-    """Clasifica la vacante con vocabulario ampliado para Colombia y LATAM."""
+    """Clasifica la vacante estrictamente en una de las 4 categorías técnicas."""
     tit = (titulo or "").lower()
     tags_text = " ".join(tags).lower() if tags else ""
     
-    # 1. DATA ENTRY Y DIGITACIÓN
+    # 0. FILTRO DE DESCARTE: Puestos que NUNCA pertenecen a las áreas técnicas buscadas
+    descartables = [
+        "call center", "customer service", "servicio al cliente", "asesor de servicio",
+        "asesor comercial", "agente comercial", "ejecutivo comercial", "ventas",
+        "telemercadeo", "telemarketing", "pqrs", "sac", "auxiliar administrativo",
+        "asistente administrativo", "administrative assistant", "executive assistant",
+        "recepcionista", "secretaria", "enfermera", "enfermero", "médico", "medico",
+        "analista financiero", "financial analyst", "analista contable", "cobranza",
+        "cobranzas", "cajero", "cajera", "abogado", "psicologo", "psicólogo",
+        "conductor", "operario", "asesor bilingüe", "bilingual customer"
+    ]
+    # Si contiene una palabra descartable y NO menciona explícitamente data entry o ingeniería
+    if any(d in tit for d in descartables):
+        if not any(k in tit for k in ["data entry", "digitador", "digitadora", "python", "data engineer", "software", "desarrollador"]):
+            return None
+
+    # 1. DATA ENTRY Y DIGITACIÓN (Exclusivo para captura/ingreso de datos)
     data_entry_kws = [
         "data entry", "capturista", "transcripcion", "transcripción",
         "digitador", "digitadora", "digitación", "digitacion",
-        "captura de datos", "data clerk", "data operator", "asistente de datos",
-        "ingreso de datos", "auxiliar de datos", "transcriptor", "transcriptor(a)"
+        "captura de datos", "ingreso de datos", "data clerk", "data entry clerk",
+        "data typist", "transcriptor", "transcriptor(a)"
     ]
     if any(k in tit for k in data_entry_kws):
         return "DATA ENTRY"
@@ -71,8 +88,9 @@ def clasificar_oferta(titulo, tags=None):
         "data engineer", "ingeniero de datos", "ingeniera de datos", "ingeniería de datos",
         "analista de datos", "data analyst", "científico de datos", "cientifico de datos",
         "data scientist", "data science", "etl", "big data", "data pipeline",
-        "data warehouse", "analytics engineer", "bases de datos", "business intelligence",
-        "power bi", "bi developer", "sql developer", "dba", "administrador de base de datos"
+        "data warehouse", "analytics engineer", "business intelligence", "analista bi",
+        "power bi", "bi developer", "sql developer", "dba", "administrador de base de datos",
+        "administrador de bases de datos"
     ]
     if any(k in tit for k in datos_kws):
         return "INGENIERÍA DE DATOS"
@@ -87,17 +105,17 @@ def clasificar_oferta(titulo, tags=None):
         "software engineer", "software developer", "backend", "full stack", "fullstack",
         "frontend", "developer", "ingeniero de software", "desarrollador", "desarrolladora",
         "programador", "programadora", "ingeniero de sistemas", "ingeniera de sistemas",
-        "desarrollador web", "web developer", "devops", "qa engineer", "qa",
-        "soporte técnico", "soporte ti", "arquitecto de software"
+        "desarrollador web", "web developer", "devops", "qa engineer", "qa automation",
+        "arquitecto de software"
     ]
     if any(k in tit for k in software_kws):
         return "INGENIERÍA DE SOFTWARE"
         
-    # 5. Evaluación por etiquetas complementarias
+    # 5. Evaluación por etiquetas complementarias (solo si no se detectó por título)
     if tags_text:
-        if any(k in tags_text for k in ["data entry", "digitador", "capturista"]):
+        if any(k in tags_text for k in ["data entry", "digitador"]):
             return "DATA ENTRY"
-        if any(k in tags_text for k in ["data engineer", "etl", "big data", "data warehouse", "data analyst"]):
+        if any(k in tags_text for k in ["data engineer", "etl", "big data", "data warehouse"]):
             return "INGENIERÍA DE DATOS"
         if "python" in tags_text:
             return "PYTHON"
@@ -105,6 +123,49 @@ def clasificar_oferta(titulo, tags=None):
             return "INGENIERÍA DE SOFTWARE"
             
     return None
+
+def determinar_modalidad(titulo="", descripcion="", lugar="", texto_extra=""):
+    """
+    Analiza de forma estricta si una vacante es 100% Remota, Híbrida o Presencial.
+    """
+    texto = f"{titulo} {descripcion} {lugar} {texto_extra}".lower()
+    
+    # 1. Indicadores explícitos de HÍBRIDO
+    hibrido_kws = [
+        "hibrido", "híbrido", "hybrid", "semi-presencial", "semipresencial",
+        "semi presencial", "alternancia", "esquema hibrido", "esquema híbrido",
+        "modalidad hibrida", "modalidad híbrida", "modelo hibrido", "modelo híbrido",
+        "dias en oficina", "días en oficina", "dias de oficina", "días de oficina",
+        "dias presencial", "días presencial", "parcialmente remoto", "partially remote",
+        "1 dia", "2 dias", "3 dias", "4 dias", "1 día", "2 días", "3 días", "4 días",
+        "días a la semana en oficina", "dias a la semana en oficina", "presencial / remoto",
+        "remoto / presencial", "home office y presencial"
+    ]
+    if any(k in texto for k in hibrido_kws):
+        return "Híbrido"
+
+    # 2. Indicadores explícitos de PRESENCIAL
+    presencial_kws = [
+        "100% presencial", "totalmente presencial", "trabajo presencial",
+        "modalidad: presencial", "modalidad presencial", "esquema presencial",
+        "en sitio", "on-site", "onsite", "en sede", "en oficina",
+        "sede presencial", "lugar de trabajo: presencial", "no remoto",
+        "trabajo en oficina", "presencial en", "100% en oficina"
+    ]
+    if any(k in texto for k in presencial_kws):
+        if "no es presencial" not in texto and "100% remoto" not in texto:
+            return "Presencial"
+
+    # 3. Indicadores de 100% REMOTO
+    remoto_kws = [
+        "100% remoto", "totalmente remoto", "fully remote", "remoto",
+        "remote", "desde casa", "home office", "homeoffice", "teletrabajo",
+        "trabajo desde casa", "wfh", "work from home", "anywhere", "worldwide"
+    ]
+    if any(k in texto for k in remoto_kws):
+        return "100% Remoto"
+        
+    return "100% Remoto" if "remoto" in lugar.lower() else "Presencial / A convenir"
 
 def limpiar_texto_html(texto_html, max_caracteres=350):
     """Limpia etiquetas HTML y prepara descripciones legibles para celdas de Excel."""
@@ -185,7 +246,10 @@ def obtener_ofertas_linkedin():
                 loc_m = re.search(r'<span class="job-search-card__location">\s*([^<]+)\s*</span>', c)
                 loc = loc_m.group(1).strip() if loc_m else "Colombia (Remoto)"
                 
-                grupo = clasificar_oferta(title) or grupo_defecto
+                grupo = clasificar_oferta(title)
+                if not grupo:
+                    continue
+                modalidad = determinar_modalidad(titulo=title, lugar=loc, texto_extra=c)
                 
                 ofertas.append({
                     "id": job_id,
@@ -194,9 +258,9 @@ def obtener_ofertas_linkedin():
                     "titulo": title,
                     "empresa": company,
                     "lugar": loc,
-                    "remoto": "Sí (100% Remoto)",
+                    "remoto": modalidad,
                     "sueldo": "Ver en LinkedIn",
-                    "descripcion": f"Vacante remota publicada en LinkedIn para {title}.",
+                    "descripcion": f"Vacante publicada en LinkedIn para {title}.",
                     "url": url_limpia
                 })
         except Exception as e:
@@ -204,8 +268,9 @@ def obtener_ofertas_linkedin():
             
     return ofertas
 
+# --- FUENTE 2: COMPUTRABAJO COLOMBIA ---
 def obtener_ofertas_computrabajo():
-    """Consulta ofertas remotas en CompuTrabajo Colombia."""
+    """Consulta ofertas en CompuTrabajo Colombia identificando modalidad real."""
     urls = [
         ("https://co.computrabajo.com/trabajo-de-python-remoto", "PYTHON"),
         ("https://co.computrabajo.com/trabajo-de-datos-remoto", "INGENIERÍA DE DATOS"),
@@ -240,6 +305,11 @@ def obtener_ofertas_computrabajo():
                     continue
                     
                 title = html.unescape(t_m.group(2).strip())
+                
+                grupo = clasificar_oferta(title)
+                if not grupo:
+                    continue
+                    
                 link_rel = t_m.group(1).split('#')[0]
                 link = f"https://co.computrabajo.com{link_rel}"
                 
@@ -250,9 +320,10 @@ def obtener_ofertas_computrabajo():
                 salary = html.unescape(sal_m.group(1).strip()) if sal_m else "No especificado"
                 
                 loc_m = re.search(r'<p class="fs13 text-secondary[^"]*">([^<]+)</p>', art)
-                loc = html.unescape(loc_m.group(1).strip()) if loc_m else "Colombia (Remoto)"
+                loc = html.unescape(loc_m.group(1).strip()) if loc_m else "Colombia"
                 
-                grupo = clasificar_oferta(title) or grupo_defecto
+                art_texto = re.sub(r'<[^>]+>', ' ', art)
+                modalidad = determinar_modalidad(titulo=title, lugar=loc, texto_extra=art_texto)
                 
                 ofertas.append({
                     "id": job_id,
@@ -260,10 +331,10 @@ def obtener_ofertas_computrabajo():
                     "grupo": grupo,
                     "titulo": title,
                     "empresa": company,
-                    "lugar": f"{loc} / Remoto",
-                    "remoto": "Sí (Remoto)",
+                    "lugar": loc,
+                    "remoto": modalidad,
                     "sueldo": salary,
-                    "descripcion": f"Oferta remota en CompuTrabajo Colombia: {title}.",
+                    "descripcion": f"Oferta en CompuTrabajo Colombia: {title}.",
                     "url": link
                 })
         except Exception as e:
@@ -271,6 +342,7 @@ def obtener_ofertas_computrabajo():
             
     return ofertas
 
+# --- FUENTE 3: GET ON BOARD (LATAM TECH & DATOS) ---
 def obtener_ofertas_getonbrd():
     """Consulta Get on Board con categorías tech y de datos."""
     endpoints = [
@@ -297,11 +369,9 @@ def obtener_ofertas_getonbrd():
                     vistos_locales.add(job_id)
                     
                     attrs = item.get("attributes", {})
-                    es_remoto = attrs.get("remote", False)
-                    modalidad = attrs.get("remote_modality", "")
-                    if not es_remoto and modalidad != "fully_remote":
-                        continue
-                        
+                    modality_raw = attrs.get("remote_modality", "")
+                    is_remote_flag = attrs.get("remote", False)
+                    
                     title = attrs.get("title", "")
                     tags = attrs.get("tags_names", [])
                     grupo = clasificar_oferta(title, tags)
@@ -309,6 +379,17 @@ def obtener_ofertas_getonbrd():
                     if grupo:
                         desc = limpiar_texto_html(attrs.get("description", ""))
                         pais = attrs.get("country", "América Latina / Remoto")
+                        
+                        if modality_raw == "fully_remote":
+                            modalidad = "100% Remoto"
+                        elif modality_raw == "hybrid":
+                            modalidad = "Híbrido"
+                        elif modality_raw == "no_remote" or not is_remote_flag:
+                            modalidad = "Presencial"
+                        elif modality_raw == "temporarily_remote":
+                            modalidad = "Híbrido / Remoto temporal"
+                        else:
+                            modalidad = determinar_modalidad(titulo=title, descripcion=desc, lugar=pais)
                         
                         min_sal = attrs.get("min_salary")
                         max_sal = attrs.get("max_salary")
@@ -325,8 +406,8 @@ def obtener_ofertas_getonbrd():
                             "grupo": grupo,
                             "titulo": title,
                             "empresa": attrs.get("company", {}).get("data", {}).get("attributes", {}).get("name", "Confidencial"),
-                            "lugar": f"{pais} (Remoto)",
-                            "remoto": "Sí (100% Remoto)",
+                            "lugar": pais,
+                            "remoto": modalidad,
                             "sueldo": sueldo,
                             "descripcion": desc,
                             "url": attrs.get("url", f"https://www.getonbrd.com/jobs/{item.get('id')}")
@@ -336,6 +417,7 @@ def obtener_ofertas_getonbrd():
             
     return ofertas
 
+# --- FUENTE 4: REMOTIVE (FILTRO LATAM / ESPAÑOL) ---
 def obtener_ofertas_remotive():
     """Consulta Remotive filtrando vacantes disponibles para LATAM y en español."""
     endpoints = [
@@ -369,14 +451,16 @@ def obtener_ofertas_remotive():
                     
                     if grupo:
                         desc = limpiar_texto_html(job.get("description", ""))
+                        lugar_str = job.get("candidate_required_location") or "Remoto Mundial / LATAM"
+                        modalidad = determinar_modalidad(titulo=title, descripcion=desc, lugar=lugar_str)
                         ofertas.append({
                             "id": job_id,
                             "portal": "Remotive",
                             "grupo": grupo,
                             "titulo": title,
                             "empresa": job.get("company_name", "Confidencial"),
-                            "lugar": job.get("candidate_required_location") or "Remoto Mundial / LATAM",
-                            "remoto": "Sí (100% Remoto)",
+                            "lugar": lugar_str,
+                            "remoto": modalidad,
                             "sueldo": job.get("salary") or "No especificado en la oferta",
                             "descripcion": desc,
                             "url": job.get("url", "")
@@ -384,6 +468,162 @@ def obtener_ofertas_remotive():
         except Exception as e:
             print(f"Error en Remotive ({url}): {e}")
             
+    return ofertas
+
+# --- FUENTE 5: TORRE.AI (COLOMBIA & LATAM TECH / REMOTO) ---
+def obtener_ofertas_torre():
+    """Consulta Torre.ai / Torre.co mediante su API de búsqueda para Colombia y LATAM."""
+    ofertas = []
+    vistos_locales = set()
+    
+    skills_to_search = [
+        "Python",
+        "Data Engineer",
+        "Data Analyst",
+        "Data Entry",
+        "Software Developer",
+        "Backend Developer",
+        "Fullstack Developer"
+    ]
+    
+    url = "https://search.torre.co/opportunities/_search"
+    
+    for skill in skills_to_search:
+        try:
+            payload = {
+                "and": [{"skill/role": {"text": skill, "experience": "potential-to-develop"}}],
+                "size": 15,
+                "aggregate": False
+            }
+            body = json.dumps(payload).encode("utf-8")
+            h = HEADERS.copy()
+            h["Content-Type"] = "application/json"
+            
+            req = urllib.request.Request(url, data=body, headers=h, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                
+            results = data.get("results") or []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                op_id = item.get("id")
+                if not op_id:
+                    continue
+                job_id = f"torre_{op_id}"
+                if job_id in vistos_locales:
+                    continue
+                vistos_locales.add(job_id)
+                
+                title = item.get("objective", "")
+                skills_list = item.get("skills") or []
+                skills = [s.get("name", "") for s in skills_list if isinstance(s, dict)]
+                grupo = clasificar_oferta(title, skills)
+                if not grupo:
+                    continue
+                    
+                orgs = item.get("organizations") or []
+                company = orgs[0].get("name", "Empresa en Torre.ai") if (orgs and isinstance(orgs[0], dict)) else "Empresa en Torre.ai"
+                
+                locs = item.get("locations") or []
+                lugar = ", ".join(locs) if locs else "Remoto / LATAM"
+                
+                is_remote = item.get("remote", False)
+                if is_remote:
+                    modalidad = "100% Remoto"
+                else:
+                    modalidad = determinar_modalidad(titulo=title, lugar=lugar)
+                    
+                comp = item.get("compensation") or {}
+                comp_data = comp.get("data") or {} if isinstance(comp, dict) else {}
+                code = comp_data.get("code")
+                curr = comp_data.get("currency", "USD")
+                min_amt = comp_data.get("minAmount")
+                max_amt = comp_data.get("maxAmount")
+                period = comp_data.get("periodicity", "mes")
+                
+                if code == "range" and min_amt and max_amt:
+                    sueldo = f"${min_amt:,.0f} - ${max_amt:,.0f} {curr} / {period}"
+                elif min_amt and min_amt > 0:
+                    sueldo = f"Desde ${min_amt:,.0f} {curr} / {period}"
+                else:
+                    sueldo = "No especificado"
+                    
+                link = f"https://torre.ai/postings/{op_id}"
+                desc = f"Oportunidad en Torre.ai para {title} en {company}."
+                
+                ofertas.append({
+                    "id": job_id,
+                    "portal": "Torre.ai",
+                    "grupo": grupo,
+                    "titulo": title,
+                    "empresa": company,
+                    "lugar": lugar,
+                    "remoto": modalidad,
+                    "sueldo": sueldo,
+                    "descripcion": desc,
+                    "url": link
+                })
+        except Exception as e:
+            print(f"Error en Torre.ai ({skill}): {e}")
+            
+    return ofertas
+
+# --- FUENTE 6: REMOTOJOB (OFERTAS VERIFICADAS EN ESPAÑOL) ---
+def obtener_ofertas_remotojob():
+    """Consulta el feed RSS de RemotoJob (ofertas verificadas 100% en español)."""
+    url = "https://remotojob.com/feed"
+    ofertas = []
+    vistos_locales = set()
+    
+    try:
+        req = urllib.request.Request(url, headers=HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            xml_data = resp.read()
+            
+        root = ET.fromstring(xml_data)
+        items = root.findall(".//item")
+        
+        for it in items:
+            title_el = it.find("title")
+            link_el = it.find("link")
+            desc_el = it.find("description")
+            
+            title = title_el.text.strip() if title_el is not None and title_el.text else ""
+            link = link_el.text.strip() if link_el is not None and link_el.text else ""
+            desc_raw = desc_el.text if desc_el is not None and desc_el.text else ""
+            
+            if not link or not title:
+                continue
+                
+            job_id = f"rj_{link.rstrip('/').split('/')[-1]}"
+            if job_id in vistos_locales:
+                continue
+            vistos_locales.add(job_id)
+            
+            cats = [c.text.strip() for c in it.findall("category") if c.text]
+            grupo = clasificar_oferta(title, cats)
+            if not grupo:
+                continue
+                
+            desc = limpiar_texto_html(desc_raw, max_caracteres=350)
+            modalidad = determinar_modalidad(titulo=title, descripcion=desc, lugar="Remoto")
+            
+            ofertas.append({
+                "id": job_id,
+                "portal": "RemotoJob",
+                "grupo": grupo,
+                "titulo": title,
+                "empresa": "Ver en RemotoJob",
+                "lugar": "Hispanoamérica / Remoto",
+                "remoto": modalidad,
+                "sueldo": "No especificado",
+                "descripcion": desc,
+                "url": link
+            })
+    except Exception as e:
+        print(f"Error en RemotoJob: {e}")
+        
     return ofertas
 
 # --- GENERADOR DE ARCHIVO EXCEL (.xlsx) PROFESIONAL ---
@@ -429,7 +669,21 @@ def generar_excel_empleos(agrupadas, ruta_archivo):
         if nombre_filtro == "Todas las Vacantes":
             lista_ofertas = [of for g, ofs in agrupadas.items() for of in ofs]
         else:
-            lista_ofertas = agrupadas.get(nombre_filtro, [])
+            lista_ofertas = list(agrupadas.get(nombre_filtro, []))
+            
+        # Ordenar estrictamente: 1. 100% Remoto, 2. Híbrido, 3. Presencial
+        def orden_modalidad(of):
+            mod = (of.get("remoto") or "").lower()
+            if "100% remoto" in mod or mod == "remoto":
+                return (1, of.get("titulo", "").lower())
+            elif "híbrido" in mod or "hibrido" in mod:
+                return (2, of.get("titulo", "").lower())
+            elif "presencial" in mod:
+                return (3, of.get("titulo", "").lower())
+            else:
+                return (4, of.get("titulo", "").lower())
+                
+        lista_ofertas.sort(key=orden_modalidad)
             
         for of in lista_ofertas:
             row_data = [
@@ -552,6 +806,8 @@ def ejecutar_busqueda():
     todas_ofertas.extend(obtener_ofertas_computrabajo())
     todas_ofertas.extend(obtener_ofertas_getonbrd())
     todas_ofertas.extend(obtener_ofertas_remotive())
+    todas_ofertas.extend(obtener_ofertas_torre())
+    todas_ofertas.extend(obtener_ofertas_remotojob())
     
     # Desduplicar y filtrar nuevas
     nuevas = []
@@ -602,7 +858,7 @@ def ejecutar_busqueda():
         f"• 📊 <b>Ingeniería y Análisis de Datos:</b> {c_datos}\n"
         f"• ⌨️ <b>Data Entry y Digitación:</b> {c_entry}\n"
         f"• 💻 <b>Ingeniería de Software:</b> {c_soft}\n\n"
-        f"🌐 <i>Portales: LinkedIn, CompuTrabajo, Get on Board y Remotive</i>\n"
+        f"🌐 <i>Portales: LinkedIn, CompuTrabajo, Get on Board, Remotive, Torre.ai y RemotoJob</i>\n"
         f"📎 <i>Descarga el archivo Excel adjunto para ver todos los enlaces, sueldos y descripciones.</i>"
     )
     

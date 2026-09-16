@@ -6,7 +6,7 @@ Bot automatizado que busca ofertas remotas en español para:
 - ⌨️ **Data Entry**
 - 💻 **Ingeniería de Software**
 
-Fuentes integradas: **LinkedIn (Colombia / LATAM)**, **CompuTrabajo Colombia**, **Get on Board** y **Remotive**.
+Fuentes integradas: **LinkedIn (Colombia / LATAM)**, **CompuTrabajo Colombia**, **Get on Board**, **Remotive**, **Torre.ai** y **RemotoJob**.
 
 ---
 
